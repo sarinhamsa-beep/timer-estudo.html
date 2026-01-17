@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Relógio de Estudo para Concursos</title>
+    <style>
+        body { font-family: Arial, sans-serif; text-align: center; padding: 20px; }
+        select, button, input { margin: 10px; padding: 10px; }
+        #timer { font-size: 2em; margin: 20px; }
+        .display { margin: 10px; }
+        .cadastro { margin: 20px; border: 1px solid #ccc; padding: 10px; }
+    </style>
+    <!-- Biblioteca para ler CSV -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+</head>
+<body>
+    <h1>Relógio de Estudo para Concursos</h1>
+    
+    <!-- Cadastro de Concursos -->
+    <div class="cadastro">
+        <h3>Cadastrar Concurso</h3>
+        <input type="text" id="novoConcurso" placeholder="Nome do Concurso">
+        <button id="addConcurso">Adicionar Concurso</button>
+    </div>
+    
+    <!-- Cadastro de Blocos -->
+    <div class="cadastro">
+        <h3>Cadastrar Bloco</h3>
+        <input type="text" id="novoBloco" placeholder="Nome do Bloco">
+        <button id="addBloco">Adicionar Bloco</button>
+    </div>
+    
+    <!-- Cadastro de Matérias -->
+    <div class="cadastro">
+        <h3>Cadastrar Matéria</h3>
+        <input type="text" id="novoMateria" placeholder="Nome da Matéria">
+        <button id="addMateria">Adicionar Matéria</button>
+    </div>
+    
+    <!-- Importar CSV -->
+    <div class="cadastro">
+        <h3>Importar de CSV (Blocos e Matérias)</h3>
+        <p>Crie um CSV no Excel: Coluna 1 = Bloco, Coluna 2 = Matéria. Exemplo:<br>
+        Bloco1,Matéria1<br>Bloco1,Matéria2<br>Bloco2,Matéria3</p>
+        <input type="file" id="csvFile" accept=".csv">
+        <button id="importCSV">Importar CSV</button>
+    </div>
+    
+    <label>Concurso:</label>
+    <select id="concurso"></select>
+    
+    <label>Bloco:</label>
+    <select id="bloco"></select>
+    
+    <label>Matéria:</label>
+    <select id="materia"></select>
+    
+    <br>
+    <button id="startPause">Start</button>
+    <button id="reset">Reset Timer Atual</button>
+    <button id="clearAll">Limpar Tudo (Cadastros e Tempos)</button>
+    
+    <div id="timer">00:00:00</div>
+    
+    <div class="display">
+        <strong>Tempo Total:</strong> <span id="totalTime">00:00:00</span>
+    </div>
+    <div class="display">
+        <strong>Tempo do Bloco:</strong> <span id="blocoTime">00:00:00</span>
+    </div>
+    <div class="display">
+        <strong>Tempo da Matéria:</strong> <span id="materiaTime">00:00:00</span>
+    </div>
+    <div class="display">
+        <strong>Tempo Diário:</strong> <span id="dailyTime">00:00:00</span>
+    </div>
+    
+    <script>
+        let concursos = JSON.parse(localStorage.getItem('concursos') || '["Selecione um Concurso"]');
+        let blocos = JSON.parse(localStorage.getItem('blocos') || '["Selecione um Bloco"]');
+        let materias = JSON.parse(localStorage.getItem('materias') || '["Selecione uma Matéria"]');
+        
+        let timerInterval;
+        let isRunning = false;
+        let currentTime = 0;
+        let totalTime = parseInt(localStorage.getItem('totalTime') || 0);
+        let blocoTimes = JSON.parse(localStorage.getItem('blocoTimes') || '{}');
+        let materiaTimes = JSON.parse(localStorage.getItem('materiaTimes') || '{}');
+        let dailyTime = parseInt(localStorage.getItem('dailyTime') || 0);
+        let lastDate = localStorage.getItem('lastDate') || new Date().toDateString();
+        
+        if (new Date().toDateString() !== lastDate) {
+            dailyTime = 0;
+            localStorage.setItem('dailyTime', dailyTime);
+            localStorage.setItem('lastDate', new Date().toDateString());
+        }
+        
+        const concursoSelect = document.getElementById('concurso');
+        const blocoSelect = document.getElementById('bloco');
+        const materiaSelect = document.getElementById('materia');
+        const timerDisplay = document.getElementById('timer');
+        const totalDisplay = document.getElementById('totalTime');
+        const blocoDisplay = document.getElementById('blocoTime');
+        const materiaDisplay = document.getElementById('materiaTime');
+        const dailyDisplay = document.getElementById('dailyTime');
+        const startPauseBtn = document.getElementById('startPause');
+        const resetBtn = document.getElementById('reset');
+        const clearAllBtn = document.getElementById('clearAll');
+        
+        function formatTime(seconds) {
+            const h = Math.floor(seconds / 3600);
+            const m = Math.floor((seconds % 3600) / 60);
+            const s = seconds % 60;
+            return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+        }
+        
+        function updateDisplays() {
+            timerDisplay.textContent = formatTime(currentTime);
+            totalDisplay.textContent = formatTime(totalTime);
+            blocoDisplay.textContent = formatTime(blocoTimes[blocoSelect.value] || 0);
+            materiaDisplay.textContent = formatTime(materiaTimes[materiaSelect.value] || 0);
+            dailyDisplay.textContent = formatTime(dailyTime);
+        }
+        
+        function updateSelects() {
+            concursoSelect.innerHTML = concursos.map(c => `<option value="${c}">${c}</option>`).join('');
+            blocoSelect.innerHTML = blocos.map(b => `<option value="${b}">${b}</option>`).join('');
+            materiaSelect.innerHTML = materias.map(m => `<option value="${m}">${m}</option>`).join('');
+            localStorage.setItem('concursos', JSON.stringify(concursos));
+            localStorage.setItem('blocos', JSON.stringify(blocos));
+            localStorage.setItem('materias', JSON.stringify(materias));
+        }
+        
+        function startTimer() {
+            if (!isRunning) {
+                isRunning = true;
+                startPauseBtn.textContent = 'Pause';
+                timerInterval = setInterval(() => {
+                    currentTime++;
+                    totalTime++;
+                    dailyTime++;
+                    blocoTimes[blocoSelect.value] = (blocoTimes[blocoSelect.value] || 0) + 1;
+                    materiaTimes[materiaSelect.value] = (materiaTimes[materiaSelect.value] || 0) + 1;
+                    
+                    localStorage.setItem('totalTime', totalTime);
+                    localStorage.setItem('blocoTimes', JSON.stringify(blocoTimes));
+                    localStorage.setItem('materiaTimes', JSON.stringify(materiaTimes));
+                    localStorage.setItem('dailyTime', dailyTime);
+                    
+                    updateDisplays();
+                }, 1000);
+            } else {
+                pauseTimer();
+            }
+        }
+        
+        function pauseTimer() {
+            isRunning = false;
+            startPauseBtn.textContent = 'Start';
+            clearInterval(timerInterval);
+        }
+        
+        function resetTimer() {
+            pauseTimer();
+            currentTime = 0;
+            updateDisplays();
+        }
+        
+        function clearAll() {
+            if (confirm('Isso vai limpar todos os cadastros e tempos. Tem certeza?')) {
+                concursos = ['Selecione um Concurso'];
+                blocos = ['Selecione um Bloco'];
+                materias = ['Selecione uma Matéria'];
+                totalTime = 0;
+                blocoTimes = {};
+                materiaTimes = {};
+                dailyTime = 0;
+                currentTime = 0;
+                updateSelects();
+                updateDisplays();
+                localStorage.clear();
+            }
+        }
+        
+        // Adicionar Concurso
+        document.getElementById('addConcurso').addEventListener('click', () => {
+            const novo = document.getElementById('novoConcurso').value.trim();
+            if (novo && !concursos.includes(novo)) {
+                concursos.push(novo);
+                updateSelects();
+                document.getElementById('novoConcurso').value = '';
+            }
+        });
+        
+        // Adicionar Bloco
+        document.getElementById('addBloco').addEventListener('click', () => {
+            const novo = document.getElementById('novoBloco').value.trim();
+            if (novo && !blocos.includes(novo)) {
+                blocos.push(novo);
+                updateSelects();
+                document.getElementById('novoBloco').value = '';
+            }
+        });
+        
+        // Adicionar Matéria
+        document.getElementById('addMateria').addEventListener('click', () => {
+            const novo = document.getElementById('novoMateria').value.trim();
+            if (novo && !materias.includes(novo)) {
+                materias.push(novo);
+                updateSelects();
+                document.getElementById('novoMateria').value = '';
+            }
+        });
+        
+        // Importar CSV
+        document.getElementById('importCSV').addEventListener('click', () => {
+            const file = document.getElementById('csvFile').files[0];
+            if (file) {
+                Papa.parse(file, {
+                    complete: function(results) {
+                        results.data.forEach(row => {
+                            if (row[0] && row[1]) {
+                                if (!blocos.includes(row[0])) blocos.push(row[0]);
+                                if (!materias.includes(row[1])) materias.push(row[1]);
+                            }
+                        });
+                        updateSelects();
+                        alert('CSV importado com sucesso!');
+                    }
+                });
+            }
+        });
+        
+        startPauseBtn.addEventListener('click', startTimer);
+        resetBtn.addEventListener('click', resetTimer);
+        clearAllBtn.addEventListener('click', clearAll);
+        
+        updateSelects();
+        updateDisplays();
+    </script>
+</body>
+</html>
